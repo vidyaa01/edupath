@@ -65,74 +65,91 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const model = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-  const maxAttempts = 3;
+  const models = [...new Set([
+    process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite',
+    'gemini-2.5-flash-lite',
+    'gemini-2.5-flash',
+    'gemini-2.0-flash'
+  ])];
+  const maxAttempts = 2;
   let lastErrorPayload = null;
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      const geminiRes = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: 'application/json' }
-        })
-      });
+  for (const model of models) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-      // Retry only on transient errors: 503 (overloaded) and 429 (rate limited).
-      if ((geminiRes.status === 503 || geminiRes.status === 429) && attempt < maxAttempts) {
-        lastErrorPayload = await geminiRes.text().catch(() => '');
-        const delayMs = attempt * 1500; // 1.5s, then 3s
-        await new Promise(r => setTimeout(r, delayMs));
-        continue;
-      }
-
-      if (!geminiRes.ok) {
-        const errText = await geminiRes.text().catch(() => '');
-        res.status(502).json({
-          error: 'gemini_http_error',
-          status: geminiRes.status,
-          message: errText.slice(0, 500)
-        });
-        return;
-      }
-
-      const data = await geminiRes.json();
-      const text = data && data.candidates && data.candidates[0] &&
-                   data.candidates[0].content && data.candidates[0].content.parts &&
-                   data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text;
-
-      if (!text) {
-        res.status(502).json({ error: 'gemini_empty_response', message: JSON.stringify(data).slice(0, 500) });
-        return;
-      }
-
-      let parsed;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        parsed = JSON.parse(text);
-      } catch (e) {
-        res.status(502).json({ error: 'gemini_invalid_json', message: text.slice(0, 500) });
-        return;
-      }
+        const geminiRes = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: 'application/json' }
+          })
+        });
 
-      res.status(200).json({ result: parsed });
-      return;
-    } catch (err) {
-      if (attempt === maxAttempts) {
-        res.status(500).json({ error: 'server_error', message: String((err && err.message) || err) });
+        // Retry briefly, then try the next model on transient overload/rate limits.
+        if (geminiRes.status === 429 || geminiRes.status >= 500) {
+          lastErrorPayload = await geminiRes.text().catch(() => '');
+          console.error(`[generate] ${model} returned ${geminiRes.status}`);
+          if (attempt < maxAttempts) {
+            await new Promise(r => setTimeout(r, attempt * 1500));
+          }
+          continue;
+        }
+
+        if (geminiRes.status === 404 && model !== models[models.length - 1]) {
+          lastErrorPayload = await geminiRes.text().catch(() => '');
+          console.error(`[generate] ${model} is unavailable, trying the next model`);
+          continue;
+        }
+
+        if (!geminiRes.ok) {
+          const errText = await geminiRes.text().catch(() => '');
+          res.status(502).json({
+            error: 'gemini_http_error',
+            status: geminiRes.status,
+            message: errText.slice(0, 500)
+          });
+          return;
+        }
+
+        const data = await geminiRes.json();
+        const text = data && data.candidates && data.candidates[0] &&
+                     data.candidates[0].content && data.candidates[0].content.parts &&
+                     data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text;
+
+        if (!text) {
+          console.error(`[generate] ${model} returned an empty candidate response`);
+          res.status(502).json({ error: 'gemini_empty_response', message: JSON.stringify(data).slice(0, 500) });
+          return;
+        }
+
+        let parsed;
+        try {
+          parsed = JSON.parse(text);
+        } catch (e) {
+          console.error(`[generate] ${model} returned non-JSON text`);
+          res.status(502).json({ error: 'gemini_invalid_json', message: text.slice(0, 500) });
+          return;
+        }
+
+        res.status(200).json({ result: parsed });
         return;
+      } catch (err) {
+        if (attempt === maxAttempts && model === models[models.length - 1]) {
+          res.status(500).json({ error: 'server_error', message: String((err && err.message) || err) });
+          return;
+        }
+        if (attempt < maxAttempts) await new Promise(r => setTimeout(r, attempt * 1500));
       }
-      await new Promise(r => setTimeout(r, attempt * 1500));
     }
   }
 
   // All attempts exhausted on transient errors.
   res.status(503).json({
     error: 'gemini_overloaded',
-    message: 'Gemini was overloaded after multiple retries. Please try again shortly.',
+    message: 'Gemini models are temporarily overloaded after multiple retries. Please try again shortly.',
     detail: (lastErrorPayload || '').slice(0, 300)
   });
 };

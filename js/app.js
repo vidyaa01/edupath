@@ -9,6 +9,7 @@ const state = {
   weeks: [],
   streak: { count: 6, days: ['done','done','done','done','done','today','upcoming'] },
   chat: [],
+  chatOpen: false,
   chatLoading: false,
   chatError: null,
   aiLoading: false,
@@ -166,6 +167,28 @@ function escapeHtml(value) {
     '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
   }[ch]));
 }
+function logoHtml() {
+  return `<div class="brand-mark w-8 h-8 bg-slate-900 rounded-xl flex items-center justify-center p-1.5 shadow-sm">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-full h-full text-white stroke-[2.5]" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="7" cy="7" r="1.5" fill="currentColor" />
+      <circle cx="17" cy="17" r="1.5" fill="currentColor" />
+      <path d="M7 9c0 4 10 2 10 6" />
+    </svg>
+  </div>`;
+}
+function getOfflineChatResponse(userQuery) {
+  const query = userQuery.toLowerCase();
+  if (query.includes('next') || query.includes('step') || query.includes('focus')) {
+    return 'Your next best step is to complete your active weekly objectives in the Weekly Plan section, focusing on foundational concepts first.';
+  } else if (query.includes('streak') || query.includes('track')) {
+    return 'Keep your momentum going! Complete at least one learning activity or practice task daily to extend your streak.';
+  } else if (query.includes('gap') || query.includes('skill')) {
+    return 'Your skill gap analysis compares your current profile against your target role. Check the Capability Analysis section to see high-priority missing skills.';
+  } else if (query.includes('resource') || query.includes('project')) {
+    return 'Recommended resources and mini-project tasks are tailored to your current level in the active week card.';
+  }
+  return "I'm currently operating in offline mode, but you can continue tracking your progress, checking off weekly tasks, and reviewing your skill gaps right here on your dashboard!";
+}
 function ringSVG(pct, size=54, stroke=5) {
   const r = (size - stroke) / 2, c = 2 * Math.PI * r;
   const offset = c - (pct/100) * c;
@@ -227,16 +250,32 @@ function renderLoading() {
 function renderOnboarding() {
   const fileChips = state.files.map((f,i) => `<div class="file-chip">${f}<button data-remove-file="${i}">✕</button></div>`).join('');
   return `
-    <div style="max-width:680px;margin:0 auto;padding:20px 20px 60px;">
-      <div class="logo" style="margin-bottom:34px;">
-        <div class="logo-text">Edu<span class="logo-accent">Path</span></div>
-      </div>
-      <div class="hero-card">
-        <div class="hero-badge">Personal learning, made clear</div>
-        <h1>Know exactly<br><em>what to learn next.</em></h1>
-        <p class="hero-line" style="margin-left:auto;margin-right:auto;">Turn your experience and ambitions into a focused path toward the role you want.</p>
-      </div>
-      <div class="card onboard-card">
+    <div class="app-root min-h-screen w-full bg-slate-50 flex flex-col">
+    <header class="site-header w-full bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-50">
+      <div class="logo">${logoHtml()}<div class="logo-text">Edu<span class="logo-accent">Path</span></div></div>
+      <nav class="header-links"><a href="#features">Features</a><a href="#how-it-works">How It Works</a><a href="#about">About</a></nav>
+      <button class="header-chat-link" data-chat-open>Ask EduPath</button>
+      <a class="primary" href="#onboarding">Get Started</a>
+    </header>
+    <div id="onboarding" class="w-full max-w-7xl mx-auto px-6 py-12">
+      <section class="hero-section grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+        <div class="hero-copy">
+          <div class="hero-badge split-badge">✨ Personalized learning, finally</div>
+          <h1>Bridge your skill gap with <span>AI-driven learning paths.</span></h1>
+          <p>Stop following one-size-fits-all curricula. EduPath analyzes your skills, identifies what's missing for your target role, and builds a roadmap that evolves with you.</p>
+          <div class="hero-actions">
+            <a class="hero-cta" href="#onboarding-form">Start your skill assessment <span>→</span></a>
+            <div class="social-proof"><div class="avatar-stack"><span>AM</span><span>JT</span><span>KL</span></div><strong>Trusted by 2,400+ learners</strong></div>
+          </div>
+        </div>
+        <div class="snapshot-card">
+          <div class="snapshot-header"><div><div class="snapshot-label">YOUR LEARNING SNAPSHOT</div><h2>Full-stack AI engineer</h2></div><span class="target-badge">⌁</span></div>
+          <div class="snapshot-metrics"><div><span>Match score</span><strong>68%</strong><small>+12% this month</small></div><div><span>Weekly goal</span><strong>4.5h</strong><small>On track</small></div><div><span>Streak</span><strong>12 days</strong><small>Best yet</small></div></div>
+          <div class="snapshot-progress"><div><span>Week 1 progress</span><strong>42%</strong></div><div class="snapshot-track"><span></span></div><small>✓ 3 of 7 objectives complete</small></div>
+          <div class="snapshot-next"><strong>⚡ Next up: Advanced TypeScript</strong><span>45 min · Official docs →</span></div>
+        </div>
+      </section>
+      <div id="onboarding-form" class="card onboard-card">
         <div class="placeholder-note">Your info stays in this browser (localStorage) and is sent only to the AI provider configured in js/aiProvider.js when you build your plan.</div>
         <div class="field">
           <label>Your name</label>
@@ -267,26 +306,20 @@ function renderOnboarding() {
         <button class="primary" id="submitBtn">Build my learning path</button>
       </div>
     </div>
+    ${renderAsk()}
+    </div>
   `;
 }
 
 function sidebarHtml() {
-  const tabs = [
-    { id: 'dashboard', label: 'Dashboard', icon: '▦' },
-    { id: 'week', label: 'Weekly plan', icon: '▤' },
-    { id: 'progress', label: 'Progress report', icon: '◔' },
-    { id: 'ask', label: 'Ask EduPath', icon: '◈' }
-  ];
   return `
-    <div class="sidebar">
-      <div class="logo"><div class="logo-text">Edu<span class="logo-accent">Path</span></div></div>
-      <div class="nav-group-label">Your workspace</div>
-      ${tabs.map(t => `<button class="nav-item ${state.activeTab===t.id?'active':''}" data-tab="${t.id}"><span class="nav-icon">${t.icon}</span>${t.label}</button>`).join('')}
-      <div class="sidebar-bottom">
-        <button class="nav-item" data-action="settings"><span class="nav-icon">⚙</span>Settings</button>
-        <button class="nav-item" data-action="logout"><span class="nav-icon">↩</span>Log out</button>
-      </div>
-    </div>
+    <header class="site-header w-full bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-50">
+      <div class="logo">${logoHtml()}<div class="logo-text">Edu<span class="logo-accent">Path</span></div></div>
+      <nav class="header-links"><a href="#features">Features</a><a href="#how-it-works">How It Works</a><a href="#about">About</a></nav>
+      <button class="header-chat-link" data-chat-open>Ask EduPath</button>
+      <button class="primary" data-tab="dashboard">Dashboard</button>
+      <button class="secondary" data-action="logout">Start over</button>
+    </header>
   `;
 }
 
@@ -303,8 +336,7 @@ function topbarHtml(title) {
 }
 
 function renderShell() {
-  const titleMap = { dashboard: 'Dashboard', week: 'Weekly plan', progress: 'Progress report', ask: 'Ask EduPath' };
-  return `<div class="app-shell">${sidebarHtml()}<div class="main">${topbarHtml(titleMap[state.activeTab])}<div class="content">${renderMain()}</div></div></div>`;
+  return `<div class="app-root min-h-screen w-full bg-slate-50 flex flex-col app-shell">${sidebarHtml()}<main class="main w-full flex-1"><div class="content dashboard-content w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 flex flex-col gap-8">${renderMain()}</div></main></div>`;
 }
 
 function renderMain() {
@@ -318,7 +350,7 @@ function renderMain() {
   return '';
 }
 
-function renderDashboard() {
+function renderDashboardLegacy() {
   const acquired = state.gaps.filter(g=>g.level==='acquired').length;
   const inProgress = state.gaps.filter(g=>g.level==='in-progress').length;
   const gapsCount = state.gaps.filter(g=>g.level==='gap').length;
@@ -339,7 +371,7 @@ function renderDashboard() {
   `).join('');
 
   return `
-    <h1 style="font-size:22px;margin-bottom:4px;">Good morning, ${firstName}</h1>
+    <h1 style="font-size:22px;margin-bottom:4px;">Hello, ${firstName}</h1>
     <p class="hero-line" style="margin-bottom:22px;">You're building toward <strong>${state.profile.targetRole || 'your target role'}</strong>. Here's your next best step.</p>
 
     <div class="grid-2">
@@ -365,7 +397,7 @@ function renderDashboard() {
       <div class="task-chip-row" style="margin-top:12px;">${todaysTasks}</div>
     </div>
 
-    <div class="grid-3">
+    <div class="grid-3 grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
       <div class="card stat-card"><div class="stat-icon acquired">✓</div><div><div class="stat-num">${acquired}</div><div class="stat-label">Skills acquired</div></div></div>
       <div class="card stat-card"><div class="stat-icon progress">↻</div><div><div class="stat-num">${inProgress}</div><div class="stat-label">In progress</div></div></div>
       <div class="card stat-card"><div class="stat-icon gap">!</div><div><div class="stat-num">${gapsCount}</div><div class="stat-label">Remaining gaps</div></div></div>
@@ -378,6 +410,44 @@ function renderDashboard() {
       </div>
       <div class="progress-bar-track"><div class="progress-bar-fill" style="width:${weekPct(curWeek)}%;"></div></div>
     </div>
+  `;
+}
+
+function renderDashboard() {
+  const acquired = state.gaps.filter(g=>g.level==='acquired').length;
+  const inProgress = state.gaps.filter(g=>g.level==='in-progress').length;
+  const gapsCount = state.gaps.filter(g=>g.level==='gap').length;
+  const total = state.gaps.length || 1;
+  const match = state.gaps.length ? Math.round(state.gaps.reduce((sum, g) => sum + g.pct, 0) / state.gaps.length) : 0;
+  const curWeek = state.weeks[state.activeWeek];
+  const firstName = (state.profile.name || 'there').split(' ')[0];
+  const streakRow = state.streak.days.map((d,i) => `<div class="streak-day">${['M','T','W','T','F','S','S'][i]}<div class="streak-dot ${d}">${d==='done'?'✓':''}</div></div>`).join('');
+  const todaysTasks = curWeek.tasks.slice(0,3).map((t,i) => `<div class="task-chip ${t.done?'done':''}" data-today-task="${i}"><div class="task-check">${t.done?'✓':''}</div><div><div class="t-title">${t.text}</div><div class="t-meta">${curWeek.title}</div></div></div>`).join('');
+  const skillBars = state.gaps.map(g => {
+    const color = g.level==='acquired' ? '#10b981' : g.level==='in-progress' ? '#0f172a' : '#f59e0b';
+    return `<div class="skill-bar-row"><div class="skill-bar-top"><span>${g.skill}</span><span style="color:var(--text-muted)">${g.pct}%</span></div><div class="skill-bar-track"><div class="skill-bar-fill" style="width:${g.pct}%;background:${color}"></div></div></div>`;
+  }).join('');
+
+  return `
+    <section class="dashboard-hero">
+      <div><div class="card-label">Your learning workspace</div><h1>Hello, ${firstName}</h1><p class="hero-line">You're building toward <strong>${state.profile.targetRole || 'your target role'}</strong>. Here's your next best step.</p></div>
+      <button class="primary" data-chat-open>Ask EduPath AI</button>
+    </section>
+
+    <div class="grid-3">
+      <div class="card summary-card"><div class="card-label">Target role</div><div class="summary-value">${state.profile.targetRole || 'Your target role'}</div><span class="summary-badge">4-week roadmap</span></div>
+      <div class="card summary-card"><div class="card-label">Profile match</div><div class="summary-value">${match}% matched</div><span class="summary-badge">Based on your profile</span></div>
+      <div class="card summary-card"><div class="card-label">Learning streak</div><div class="summary-value">🔥 ${state.streak.count} days</div><div class="streak-week">${streakRow}</div></div>
+    </div>
+
+    <div class="analytics-grid grid grid-cols-1 lg:grid-cols-3 gap-6 w-full">
+      <section class="card"><div class="card-label">Capability analysis</div><h3>Where you stand today</h3><div class="donut-wrap"><div class="donut-chart"><div class="donut-center"><strong>${match}%</strong><span>profile match</span></div></div><div class="legend-stack"><div class="legend-item"><span class="legend-name">Skills acquired</span><strong>${acquired}</strong></div><div class="legend-item"><span class="legend-name slate">In progress</span><strong>${inProgress}</strong></div><div class="legend-item"><span class="legend-name amber">Remaining gaps</span><strong>${gapsCount}</strong></div></div></div><div class="stack-bar"><div class="stack-seg acquired" style="width:${acquired/total*100}%"></div><div class="stack-seg progress" style="width:${inProgress/total*100}%"></div><div class="stack-seg gap" style="width:${gapsCount/total*100}%"></div></div></section>
+      <section class="card"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><div><div class="card-label">Overall progress</div><h3>Your capability report</h3></div><span class="summary-badge">${match}% complete</span></div><div style="margin-top:18px">${skillBars}</div></section>
+    </div>
+
+    <section class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><div><div class="card-label">Today's focus</div><h3>Small steps, real momentum</h3></div><span style="font-size:12px;color:var(--text-muted)">${curWeek.tasks.filter(t=>t.done).length}/${curWeek.tasks.length} done</span></div><div class="task-chip-row" style="margin-top:14px">${todaysTasks}</div></section>
+    ${renderWeek()}
+    <div id="ask-panel">${renderAsk()}</div>
   `;
 }
 
@@ -409,13 +479,14 @@ function renderWeek() {
     <p class="hero-line" style="margin-bottom:18px;">A clear sequence of small steps, built around your target role.</p>
     <div class="roadmap-tabs">${tabs}</div>
 
-    <div class="grid-2">
+    <div class="grid-2 roadmap-grid grid grid-cols-1 lg:grid-cols-3 gap-6 w-full">
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;">
           <div><div class="card-label">Week ${state.activeWeek+1}</div><h3>${w.title}</h3></div>
           ${ringSVG(pct)}
         </div>
         <div style="margin-top:12px;">${objectives}</div>
+        <div class="week-task-list"><div class="card-label">Weekly tasks</div><div class="task-chip-row">${checklist}</div></div>
         <div class="mini-project">
           <div class="card-label">Mini project</div>
           <div style="font-size:14px;font-weight:500;margin-bottom:4px;">${w.practiceTask}</div>
@@ -429,14 +500,6 @@ function renderWeek() {
       </div>
     </div>
 
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div><div class="card-label">Keep the rhythm going</div><h3>Week ${state.activeWeek+1} checklist</h3></div>
-        <span style="font-size:13px;color:var(--text-muted);">${w.tasks.filter(t=>t.done).length}/${w.tasks.length}</span>
-      </div>
-      <div class="progress-bar-track" style="margin:10px 0 14px;"><div class="progress-bar-fill" style="width:${pct}%;"></div></div>
-      <div class="task-chip-row">${checklist}</div>
-    </div>
   `;
 }
 
@@ -508,21 +571,26 @@ function renderProgress() {
 
 function renderAsk() {
   const messages = state.chat.map(m => `<div class="msg ${m.role}">${escapeHtml(m.text)}</div>`).join('');
-  const suggestions = ['Why is this skill next?', 'Am I behind schedule?', 'What should I focus on today?'];
+  const suggestions = ['Explain my next step', 'Why do I need Docker?'];
+  const drawerState = state.chatOpen ? 'translate-x-0' : 'translate-x-full';
   return `
-    <div class="card-label">Your learning journey</div>
-    <h1 style="font-size:22px;margin-bottom:6px;">Ask EduPath</h1>
-    <p class="hero-line" style="margin-bottom:18px;">Ask about your plan or your gaps and get guidance grounded in your learning path.</p>
-    <div class="card">
-      <div class="suggested-row">${suggestions.map(s=>`<button class="suggested-chip" data-suggest="${s}">${s}</button>`).join('')}</div>
-      <div class="chat-log" id="chatLog">${messages}</div>
-      ${state.chatLoading ? '<div class="msg agent">Thinking...</div>' : ''}
-      ${state.chatError ? `<div class="placeholder-note">${escapeHtml(state.chatError)}</div>` : ''}
-      <div class="chat-input-row">
-        <input type="text" id="chatInput" placeholder="Ask a question...">
-        <button class="primary" id="chatSend" ${state.chatLoading ? 'disabled' : ''}>Send</button>
+    <button class="chat-trigger fixed bottom-6 right-6 z-50 bg-slate-900 hover:bg-slate-800 text-white p-4 rounded-full shadow-lg flex items-center justify-center cursor-pointer transition-transform hover:scale-105" data-chat-open aria-label="Open EduPath AI Assistant">💬</button>
+    <div class="chat-backdrop fixed inset-0 z-40 ${state.chatOpen ? 'is-visible' : ''}" data-chat-close></div>
+    <aside class="chat-drawer fixed inset-y-0 right-0 z-50 w-full max-w-md bg-white shadow-2xl border-l border-slate-200 transition-transform duration-300 ease-in-out transform ${drawerState}" aria-label="EduPath AI Assistant">
+      <div class="chat-drawer-header"><div><strong>EduPath AI Assistant</strong><span><i></i> Online</span></div><button class="chat-close" data-chat-close aria-label="Close chat">✕</button></div>
+      <div class="chat-log flex-1 overflow-y-auto p-4 space-y-4" id="chatLog">
+        <div class="msg agent">Ask me about your roadmap, skill gaps, or what to focus on next.</div>${messages}
+        ${state.chatLoading ? '<div class="msg agent">Thinking...</div>' : ''}
+        ${state.chatError ? `<div class="placeholder-note">${escapeHtml(state.chatError)}</div>` : ''}
       </div>
-    </div>
+      <div class="chat-drawer-footer">
+        <div class="suggested-row">${suggestions.map(s=>`<button class="suggested-chip" data-suggest="${s}">${s}</button>`).join('')}</div>
+        <div class="chat-input-row">
+          <input type="text" id="chatInput" placeholder="Ask a question...">
+          <button class="primary" id="chatSend" ${state.chatLoading ? 'disabled' : ''}>Send</button>
+        </div>
+      </div>
+    </aside>
   `;
 }
 
@@ -563,6 +631,7 @@ function attachHandlers() {
       state.activeTab = 'dashboard';
       state.files = [];
       state.chat = [];
+      state.chatOpen = false;
       state.aiUnavailable = false;
       state.aiError = null;
       state.profile = { name: '', experience: '', skills: '', targetRole: '', goal: '' };
@@ -596,6 +665,13 @@ function attachHandlers() {
     });
   });
 
+  document.querySelectorAll('[data-chat-open]').forEach(el => {
+    el.addEventListener('click', () => { state.chatOpen = true; render(); });
+  });
+  document.querySelectorAll('[data-chat-close]').forEach(el => {
+    el.addEventListener('click', () => { state.chatOpen = false; render(); });
+  });
+
   const chatSend = document.getElementById('chatSend');
   const sendMsg = async (text) => {
     if (!text) return;
@@ -626,6 +702,7 @@ Learner question: ${text}`;
       state.chat.push({ role:'agent', text: answer });
     } catch (err) {
       console.error('Chat request failed:', err);
+      state.chat.push({ role:'agent', text: getOfflineChatResponse(text) });
       state.chatError = describeAIError(err);
     } finally {
       state.chatLoading = false;
