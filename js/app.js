@@ -9,6 +9,8 @@ const state = {
   weeks: [],
   streak: { count: 6, days: ['done','done','done','done','done','today','upcoming'] },
   chat: [],
+  chatLoading: false,
+  chatError: null,
   aiLoading: false,
   aiError: null,
   aiUnavailable: false
@@ -158,6 +160,11 @@ function describeAIError(err) {
 function initials(name) {
   if (!name) return '?';
   return name.trim().split(/\s+/).map(p => p[0]).slice(0,2).join('').toUpperCase();
+}
+function escapeHtml(value) {
+  return String(value).replace(/[&<>'"]/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+  }[ch]));
 }
 function ringSVG(pct, size=54, stroke=5) {
   const r = (size - stroke) / 2, c = 2 * Math.PI * r;
@@ -500,18 +507,20 @@ function renderProgress() {
 }
 
 function renderAsk() {
-  const messages = state.chat.map(m => `<div class="msg ${m.role}">${m.text}</div>`).join('');
+  const messages = state.chat.map(m => `<div class="msg ${m.role}">${escapeHtml(m.text)}</div>`).join('');
   const suggestions = ['Why is this skill next?', 'Am I behind schedule?', 'What should I focus on today?'];
   return `
     <div class="card-label">Your learning journey</div>
     <h1 style="font-size:22px;margin-bottom:6px;">Ask EduPath</h1>
-    <p class="hero-line" style="margin-bottom:18px;">Ask about your plan or your gaps. This is still a placeholder response — wiring it to real AI is a natural next step, same pattern as the plan generator above.</p>
+    <p class="hero-line" style="margin-bottom:18px;">Ask about your plan or your gaps and get guidance grounded in your learning path.</p>
     <div class="card">
       <div class="suggested-row">${suggestions.map(s=>`<button class="suggested-chip" data-suggest="${s}">${s}</button>`).join('')}</div>
       <div class="chat-log" id="chatLog">${messages}</div>
+      ${state.chatLoading ? '<div class="msg agent">Thinking...</div>' : ''}
+      ${state.chatError ? `<div class="placeholder-note">${escapeHtml(state.chatError)}</div>` : ''}
       <div class="chat-input-row">
         <input type="text" id="chatInput" placeholder="Ask a question...">
-        <button class="primary" id="chatSend">Send</button>
+        <button class="primary" id="chatSend" ${state.chatLoading ? 'disabled' : ''}>Send</button>
       </div>
     </div>
   `;
@@ -588,13 +597,42 @@ function attachHandlers() {
   });
 
   const chatSend = document.getElementById('chatSend');
-  const sendMsg = (text) => {
+  const sendMsg = async (text) => {
     if (!text) return;
     state.chat.push({ role:'user', text });
-    state.chat.push({ role:'agent', text: "Placeholder response — wiring this to window.EduPathAI.callAI(), same as the plan generator, is the natural next step." });
+    state.chatLoading = true;
+    state.chatError = null;
     saveState(state);
     render();
-    setTimeout(()=>{ const log=document.getElementById('chatLog'); if(log) log.scrollTop=log.scrollHeight; },0);
+    try {
+      const prompt = `You are EduPath, a concise and practical learning-path coach. Answer the learner's question using their profile and current plan below. Do not invent progress or skills. Return ONLY a JSON object in exactly this shape: {"answer":"string"}.
+
+Learner profile:
+- Name: ${state.profile.name || 'not provided'}
+- Target role: ${state.profile.targetRole || 'not provided'}
+- Goal: ${state.profile.goal || 'not specified'}
+- Experience: ${state.profile.experience || 'not provided'}
+
+Current skill gaps:
+${JSON.stringify(state.gaps)}
+
+Current learning plan:
+${JSON.stringify(state.weeks)}
+
+Learner question: ${text}`;
+      const result = await window.EduPathAI.callAI(prompt);
+      const answer = result && typeof result.answer === 'string' ? result.answer.trim() : '';
+      if (!answer) throw new Error('unexpected_chat_shape');
+      state.chat.push({ role:'agent', text: answer });
+    } catch (err) {
+      console.error('Chat request failed:', err);
+      state.chatError = describeAIError(err);
+    } finally {
+      state.chatLoading = false;
+      saveState(state);
+      render();
+      setTimeout(()=>{ const log=document.getElementById('chatLog'); if(log) log.scrollTop=log.scrollHeight; },0);
+    }
   };
   if (chatSend) {
     chatSend.addEventListener('click', () => { const i=document.getElementById('chatInput'); sendMsg(i.value.trim()); });
