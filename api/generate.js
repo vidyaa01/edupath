@@ -66,10 +66,8 @@ module.exports = async function handler(req, res) {
   }
 
   const models = [...new Set([
-    process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite',
-    'gemini-2.5-flash-lite',
-    'gemini-2.5-flash',
-    'gemini-2.0-flash'
+    process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+    'gemini-3.6-flash'
   ])];
   const maxAttempts = 2;
   let lastErrorPayload = null;
